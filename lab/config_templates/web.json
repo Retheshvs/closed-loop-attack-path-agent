@@ -1,0 +1,16 @@
+{
+  "name": "web",
+  "zone": "internet",
+  "version": "1.0.0",
+  "vulns": [
+    {
+      "cve": "CVE-2023-38606",
+      "name": "Web Proxy Request Forgery & Unauthenticated RCE",
+      "severity": "CRITICAL",
+      "exploitable": true
+    }
+  ],
+  "creds_weak": false,
+  "ports": [80, 5000],
+  "holds": null
+}

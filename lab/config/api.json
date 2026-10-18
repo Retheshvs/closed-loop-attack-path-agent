@@ -1,0 +1,16 @@
+{
+  "name": "api",
+  "zone": "dmz",
+  "version": "1.2.0",
+  "vulns": [
+    {
+      "cve": "CVE-2023-22515",
+      "name": "Broken Object Level Auth & Gateway RCE",
+      "severity": "CRITICAL",
+      "exploitable": true
+    }
+  ],
+  "creds_weak": false,
+  "ports": [5000],
+  "holds": null
+}

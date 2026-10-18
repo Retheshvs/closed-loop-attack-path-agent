@@ -1,0 +1,92 @@
+version: '3.8'
+
+networks:
+  internet_net:
+    driver: bridge
+  dmz_net:
+    driver: bridge
+  internal_net:
+    driver: bridge
+
+services:
+  web:
+    container_name: lab_web
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=web
+      - CONFIG_PATH=/app/config.json
+    volumes:
+      - ./config/web.json:/app/config.json
+    networks:
+      - internet_net
+      - dmz_net
+    ports:
+      - "8080:5000"
+    restart: unless-stopped
+
+  api:
+    container_name: lab_api
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=api
+      - CONFIG_PATH=/app/config.json
+    volumes:
+      - ./config/api.json:/app/config.json
+    networks:
+      - dmz_net
+      - internal_net
+    ports:
+      - "8081:5000"
+    restart: unless-stopped
+
+  admin:
+    container_name: lab_admin
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=admin
+      - CONFIG_PATH=/app/config.json
+    volumes:
+      - ./config/admin.json:/app/config.json
+    networks:
+      - internal_net
+    ports:
+      - "8082:5000"
+    restart: unless-stopped
+
+  db:
+    container_name: lab_db
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=db
+      - CONFIG_PATH=/app/config.json
+    volumes:
+      - ./config/db.json:/app/config.json
+    networks:
+      - internal_net
+    ports:
+      - "8083:5000"
+    restart: unless-stopped
+
+  fileshare:
+    container_name: lab_fileshare
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=fileshare
+      - CONFIG_PATH=/app/config.json
+    volumes:
+      - ./config/fileshare.json:/app/config.json
+    networks:
+      - internal_net
+    ports:
+      - "8084:5000"
+    restart: unless-stopped

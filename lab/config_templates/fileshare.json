@@ -1,0 +1,16 @@
+{
+  "name": "fileshare",
+  "zone": "internal",
+  "version": "1.1.0",
+  "vulns": [
+    {
+      "cve": "CVE-2023-27997",
+      "name": "Insecure SMB File Share Exposure",
+      "severity": "HIGH",
+      "exploitable": true
+    }
+  ],
+  "creds_weak": true,
+  "ports": [445, 5000],
+  "holds": "customer_backups"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "admin",
+  "zone": "internal",
+  "version": "0.9.1",
+  "vulns": [
+    {
+      "cve": "CVE-2023-46604",
+      "name": "Admin Console Remote Code Execution",
+      "severity": "HIGH",
+      "exploitable": true
+    }
+  ],
+  "creds_weak": true,
+  "ports": [8080, 5000],
+  "holds": null
+}

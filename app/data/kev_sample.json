@@ -1,0 +1,72 @@
+[
+  {
+    "cve_id": "CVE-2023-38606",
+    "vendor_project": "Apple / WebKit",
+    "product": "Web Proxy Engine",
+    "vulnerability_name": "WebKit Memory Corruption & Remote Code Execution",
+    "date_added": "2023-07-25",
+    "short_description": "An unauthenticated remote attacker can execute arbitrary code or bypass security boundaries via maliciously crafted web requests.",
+    "required_action": "Apply vendor updates per instructions.",
+    "severity": "CRITICAL"
+  },
+  {
+    "cve_id": "CVE-2023-22515",
+    "vendor_project": "Atlassian",
+    "product": "Confluence / API Gateway",
+    "vulnerability_name": "Broken Access Control & Privilege Escalation",
+    "date_added": "2023-10-04",
+    "short_description": "An unauthenticated remote attacker can exploit broken access control to create unauthorized admin accounts and execute commands.",
+    "required_action": "Apply vendor patches immediately or restrict external access.",
+    "severity": "CRITICAL"
+  },
+  {
+    "cve_id": "CVE-2023-46604",
+    "vendor_project": "Apache",
+    "product": "ActiveMQ / Admin Console",
+    "vulnerability_name": "Remote Code Execution via Insecure Deserialization",
+    "date_added": "2023-11-02",
+    "short_description": "Insecure deserialization allows remote unauthenticated attackers with network access to run arbitrary shell commands on the server.",
+    "required_action": "Upgrade to patched versions.",
+    "severity": "HIGH"
+  },
+  {
+    "cve_id": "CVE-2023-27997",
+    "vendor_project": "Fortinet",
+    "product": "FortiOS / SMB File Share",
+    "vulnerability_name": "Heap-Based Buffer Overflow RCE",
+    "date_added": "2023-06-13",
+    "short_description": "A heap-based buffer overflow in the file share daemon allows an unauthenticated remote attacker to execute arbitrary code via crafted requests.",
+    "required_action": "Apply vendor security updates.",
+    "severity": "HIGH"
+  },
+  {
+    "cve_id": "CVE-2021-44228",
+    "vendor_project": "Apache",
+    "product": "Log4j2",
+    "vulnerability_name": "Log4Shell JNDI Remote Code Execution",
+    "date_added": "2021-12-10",
+    "short_description": "JNDI lookup features do not protect against attacker-controlled LDAP and other JNDI related endpoints, allowing unauthenticated RCE.",
+    "required_action": "Upgrade to latest log4j release.",
+    "severity": "CRITICAL"
+  },
+  {
+    "cve_id": "CVE-2024-21887",
+    "vendor_project": "Ivanti",
+    "product": "Connect Secure",
+    "vulnerability_name": "Command Injection Vulnerability",
+    "date_added": "2024-01-10",
+    "short_description": "A command injection vulnerability in web components allows authenticated admins to send crafted requests and execute arbitrary commands.",
+    "required_action": "Apply mitigations provided by Ivanti.",
+    "severity": "HIGH"
+  },
+  {
+    "cve_id": "CVE-2024-3400",
+    "vendor_project": "Palo Alto Networks",
+    "product": "PAN-OS GlobalProtect",
+    "vulnerability_name": "OS Command Injection",
+    "date_added": "2024-04-12",
+    "short_description": "A command injection in the GlobalProtect feature enables an unauthenticated attacker to execute arbitrary code with root privileges.",
+    "required_action": "Apply vendor patch immediately.",
+    "severity": "CRITICAL"
+  }
+]

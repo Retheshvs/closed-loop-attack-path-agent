@@ -1,0 +1,9 @@
+{
+  "name": "db",
+  "zone": "internal",
+  "version": "2.1.0",
+  "vulns": [],
+  "creds_weak": true,
+  "ports": [5432, 5000],
+  "holds": "customer_data"
+}

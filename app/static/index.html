@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attack-Path Agent | FalkorDB</title>
+  <meta name="description" content="Closed-loop attack-path remediation agent backed by FalkorDB graph analytics.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23B8893B'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+  <style>
+    :root {
+      --bg-page: #F6F5F1; --bg-panel: #FFFFFF; --bg-code: #F1F0EC;
+      --border: #E2E0D9; --border-subtle: #EDEAE2;
+      --ink: #14213D; --slate: #5B6475; --muted: #8E95A2;
+      --gold: #B8893B; --gold-hover: #9E7430;
+      --red: #C8372D; --green: #2F7D5B;
+      --radius: 4px;
+      --font-sans: 'IBM Plex Sans', system-ui, -apple-system, Segoe UI, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%; overflow: hidden;
+      font-family: var(--font-sans); background: var(--bg-page);
+      color: var(--ink); font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+    button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+    /* Top bar 56px */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; height: 56px;
+      background: var(--bg-panel); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; z-index: 100;
+    }
+    .brand-group { display: flex; align-items: baseline; gap: 12px; }
+    .brand-title { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+    .brand-sub { font-size: 12px; color: var(--slate); }
+    .engine-indicator { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--slate); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .dot-connected { background: var(--green); }
+    .dot-disconnected { background: var(--red); }
+
+    /* Metrics strip 64px */
+    #metrics-strip {
+      position: fixed; top: 56px; left: 0; right: 0; height: 64px;
+      background: var(--bg-panel); border-bottom: 1px solid var(--border);
+      display: flex; z-index: 99;
+    }
+    .metric-cell { flex: 1; padding: 10px 24px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+    .metric-cell:last-child { border-right: none; }
+    .metric-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); line-height: 1; }
+    .metric-val { font-family: var(--font-mono); font-size: 28px; font-weight: 600; color: var(--ink); line-height: 1; transition: color 300ms ease; }
+    .val-danger { color: var(--red); }
+    .val-safe   { color: var(--green); }
+
+    /* Workspace */
+    #workspace {
+      position: fixed; top: 120px; bottom: 0; left: 0; right: 0;
+      display: grid; grid-template-columns: 66% 34%; overflow: hidden;
+    }
+    @media (max-width: 1000px) {
+      html, body { overflow: auto; }
+      #workspace { position: static; display: flex; flex-direction: column; height: auto; margin-top: 120px; }
+    }
+
+    /* Graph panel */
+    #graph-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; background: var(--bg-panel); }
+    .panel-header { flex-shrink: 0; height: 44px; padding: 0 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .panel-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
+    .panel-subtitle { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+    #graph-viewport {
+      flex: 1; position: relative; overflow: hidden;
+      background-image: radial-gradient(circle, rgba(91,100,117,0.10) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    #zone-bands { position: absolute; inset: 0; display: flex; pointer-events: none; z-index: 1; }
+    .zone-col { flex: 1; border-right: 1px dashed var(--border); padding: 10px 10px 0; display: flex; flex-direction: column; gap: 2px; }
+    .zone-col:last-child { border-right: none; }
+    .zone-col-internet { background: rgba(250,249,246,0.85); }
+    .zone-col-dmz      { background: rgba(244,242,236,0.85); }
+    .zone-col-internal { background: rgba(237,234,226,0.85); }
+    .zone-name { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
+    .zone-netname { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
+    #cy { position: absolute; inset: 0; z-index: 2; }
+    #graph-caption { position: absolute; bottom: 10px; right: 14px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); z-index: 10; pointer-events: none; }
+
+    /* Action bar */
+    #action-bar { flex-shrink: 0; height: 56px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--bg-panel); display: flex; align-items: center; gap: 12px; }
+    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; height: 36px; padding: 0 16px; border-radius: var(--radius); border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background 120ms, border-color 120ms, color 120ms; white-space: nowrap; }
+    .btn-primary { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+    .btn-primary:hover:not(:disabled) { background: var(--gold-hover); border-color: var(--gold-hover); }
+    .btn-primary:disabled { background: transparent; color: var(--muted); border: 1px solid var(--border); cursor: not-allowed; }
+    .btn-secondary { background: var(--bg-panel); color: var(--ink); border-color: var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--bg-page); }
+    .btn-secondary:disabled { color: var(--muted); cursor: not-allowed; }
+    .btn-text { background: transparent; color: var(--slate); border-color: transparent; }
+    .btn-text:hover:not(:disabled) { color: var(--ink); }
+
+    /* Log panel */
+    #log-panel { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-panel); position: relative; }
+    #run-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: transparent; z-index: 20; overflow: hidden; }
+    #run-progress.active { background: var(--border-subtle); }
+    #run-progress.active::after { content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 38%; background: var(--gold); animation: progressSweep 1.1s infinite ease-in-out; }
+    @keyframes progressSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+    /* Tabs */
+    #tabs-header { flex-shrink: 0; height: 44px; border-bottom: 1px solid var(--border); display: flex; padding: 0 4px; }
+    .tab-btn { flex: 1; background: transparent; border: none; border-bottom: 2px solid transparent; font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--slate); cursor: pointer; padding: 0 8px; transition: color 120ms, border-color 120ms; }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+    .tab-pane { display: none; flex: 1; overflow-y: auto; padding: 16px 18px; flex-direction: column; gap: 10px; }
+    .tab-pane.active { display: flex; }
+
+    /* Activity timeline */
+    .step-row { border-left: 2px solid var(--border); padding: 3px 0 10px 14px; position: relative; font-size: 13px; }
+    .step-row::before { content: ''; position: absolute; left: -5px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--bg-panel); border: 2px solid var(--border); }
+    .step-row.step-active::before { border-color: var(--gold); background: var(--gold); }
+    .step-header { display: flex; align-items: baseline; gap: 8px; cursor: pointer; user-select: none; }
+    .step-num { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+    .step-tool { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+    .step-summary { font-size: 12px; color: var(--slate); margin-top: 2px; line-height: 1.4; }
+    .step-detail { margin-top: 8px; background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; color: var(--ink); white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto; display: none; }
+
+    /* Choke points tab */
+    .choke-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .choke-table th { font-family: var(--font-sans); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    .choke-table th.num { text-align: right; }
+    .choke-table td { font-family: var(--font-mono); font-size: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--ink); }
+    .choke-table td.num { text-align: right; color: var(--slate); }
+    .choke-table tr:last-child td { border-bottom: none; }
+    .choke-table tr.row-selected td:first-child { border-left: 3px solid var(--gold); font-weight: 600; }
+    .choke-table tr.row-selected { background: rgba(184,137,59,0.04); }
+    .bar-wrap { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+    .bar-bg { height: 4px; background: var(--border); border-radius: 2px; width: 60px; flex-shrink: 0; position: relative; }
+    .bar-fill { position: absolute; top: 0; left: 0; height: 4px; background: var(--slate); border-radius: 2px; }
+
+    /* Report tab */
+    .report-before-after { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; flex-shrink: 0; }
+    .ba-cell { flex: 1; padding: 12px 16px; border-right: 1px solid var(--border); }
+    .ba-cell:last-child { border-right: none; }
+    .ba-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin-bottom: 2px; }
+    .ba-val { font-family: var(--font-mono); font-size: 24px; font-weight: 600; color: var(--ink); }
+    .ba-val.val-danger { color: var(--red); }
+    .ba-val.val-safe   { color: var(--green); }
+    .ba-mode { flex: 2; padding: 12px 16px; display: flex; flex-direction: column; justify-content: center; }
+    .ba-mode-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); margin-bottom: 2px; }
+    .ba-mode-val { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+
+    /* Report markdown body */
+    #report-body-content { font-size: 14px; line-height: 1.55; color: var(--ink); max-width: 640px; }
+    #report-body-content h1, #report-body-content h2 { font-size: 15px; font-weight: 600; margin: 20px 0 6px; color: var(--ink); padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+    #report-body-content h3 { font-size: 13px; font-weight: 600; margin: 14px 0 4px; }
+    #report-body-content p { margin-bottom: 8px; }
+    #report-body-content ul, #report-body-content ol { margin: 0 0 8px 18px; }
+    #report-body-content li { margin-bottom: 2px; }
+    #report-body-content code { font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); padding: 2px 5px; border-radius: 3px; }
+    #report-body-content pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; margin-bottom: 10px; }
+    #report-body-content pre code { background: none; padding: 0; font-size: 11px; }
+    #report-body-content table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
+    #report-body-content th { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate); padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    #report-body-content td { font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--ink); }
+    #report-body-content tr:last-child td { border-bottom: none; }
+    #report-body-content td:nth-child(3), #report-body-content td:nth-child(4) { text-align: right; }
+    #report-body-content strong { font-weight: 600; }
+
+    /* Misc */
+    .inline-error { padding: 8px 12px; background: rgba(200,55,45,0.07); border: 1px solid rgba(200,55,45,0.2); border-radius: var(--radius); font-size: 12px; color: var(--red); }
+    .empty-state { font-size: 13px; color: var(--muted); padding: 8px 0; }
+
+    /* Modal */
+    #modal-explain { position: fixed; inset: 0; background: rgba(20,33,61,0.22); backdrop-filter: blur(2px); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+    #modal-explain.active { display: flex; }
+    .modal-dialog { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 540px; max-height: 82vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .modal-header h2 { font-size: 13px; font-weight: 600; color: var(--ink); }
+    .modal-body { padding: 16px 18px; overflow-y: auto; font-size: 13px; line-height: 1.5; }
+    .hop-item { padding: 10px 12px; background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; }
+    .hop-item-header { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .hop-item-cve { color: var(--red); }
+    .hop-item-desc { font-size: 12px; color: var(--slate); }
+
+    @media (max-width: 1000px) {
+      #graph-viewport { min-height: 420px; }
+      #log-panel { min-height: 400px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header id="topbar">
+    <div class="brand-group">
+      <span class="brand-title">Attack-Path Agent</span>
+      <span class="brand-sub">FalkorDB Graph Hacks, Track 1</span>
+    </div>
+    <div class="engine-indicator">
+      <span id="engine-status-dot" class="status-dot dot-disconnected"></span>
+      <span id="engine-status">Connecting...</span>
+    </div>
+  </header>
+
+  <section id="metrics-strip" aria-label="Key metrics">
+    <div class="metric-cell">
+      <span class="metric-label">Attack paths</span>
+      <span id="metric-paths" class="metric-val">—</span>
+    </div>
+    <div class="metric-cell">
+      <span class="metric-label">Choke point</span>
+      <span id="metric-choke" class="metric-val">—</span>
+    </div>
+    <div class="metric-cell">
+      <span class="metric-label">Fixes simulated</span>
+      <span id="metric-sims" class="metric-val">—</span>
+    </div>
+    <div class="metric-cell">
+      <span class="metric-label">Status</span>
+      <span id="metric-status" class="metric-val">—</span>
+    </div>
+  </section>
+
+  <div id="workspace">
+
+    <div id="graph-panel">
+      <div class="panel-header">
+        <span class="panel-title">Infrastructure topology</span>
+        <span class="panel-subtitle">internet_net / dmz_net / internal_net</span>
+      </div>
+
+      <div id="graph-viewport">
+        <div id="zone-bands" aria-hidden="true">
+          <div class="zone-col zone-col-internet">
+            <span class="zone-name">Internet</span>
+            <span class="zone-netname">internet_net</span>
+          </div>
+          <div class="zone-col zone-col-dmz">
+            <span class="zone-name">DMZ</span>
+            <span class="zone-netname">dmz_net</span>
+          </div>
+          <div class="zone-col zone-col-internal">
+            <span class="zone-name">Internal</span>
+            <span class="zone-netname">internal_net</span>
+          </div>
+        </div>
+        <div id="cy" aria-label="Network topology graph"></div>
+        <div id="graph-caption">Lab topology, 5 services, 3 networks</div>
+      </div>
+
+      <div id="action-bar">
+        <button id="btn-run" class="btn btn-primary"
+                onclick="triggerRun()" aria-label="Run attack-path agent">
+          Run agent
+        </button>
+        <button id="btn-reset" class="btn btn-secondary"
+                onclick="triggerReset()" aria-label="Reset lab to baseline">
+          Reset lab
+        </button>
+        <button id="btn-explain" class="btn btn-text"
+                onclick="openExplainModal()" aria-label="Explain attack path hop-by-hop">
+          Explain path
+        </button>
+      </div>
+    </div>
+
+    <div id="log-panel">
+      <div id="run-progress"></div>
+      <div id="tabs-header" role="tablist">
+        <button class="tab-btn active" role="tab" aria-selected="true"
+                onclick="switchTab('tab-activity')">Activity</button>
+        <button class="tab-btn" role="tab" aria-selected="false"
+                onclick="switchTab('tab-choke')">Choke points</button>
+        <button class="tab-btn" role="tab" aria-selected="false"
+                onclick="switchTab('tab-report')">Report</button>
+      </div>
+
+      <div id="tab-activity" class="tab-pane active" role="tabpanel">
+        <div class="step-row">
+          <div class="step-header">
+            <span class="step-num">00</span>
+            <span class="step-tool">Ready</span>
+          </div>
+          <div class="step-summary">Lab graph loaded. Click <strong>Run agent</strong> to execute closed-loop traversal and remediation.</div>
+        </div>
+      </div>
+
+      <div id="tab-choke" class="tab-pane" role="tabpanel">
+        <p class="empty-state">Run the agent to compute centrality rankings.</p>
+      </div>
+
+      <div id="tab-report" class="tab-pane" role="tabpanel">
+        <p class="empty-state">The remediation report will appear here after a run.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-explain" role="dialog" aria-modal="true"
+       aria-labelledby="modal-title" onclick="closeExplainModal(event)">
+    <div class="modal-dialog" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="modal-title">Hop-by-hop attack path evidence</h2>
+        <button class="btn btn-text" onclick="closeExplainModal()"
+                aria-label="Close modal" style="padding:4px 8px;">Close</button>
+      </div>
+      <div id="modal-explain-content" class="modal-body">Loading path evidence...</div>
+    </div>
+  </div>
+
+  <script>
+    marked.use({ gfm: true, breaks: false });
+
+    /* State */
+    let cy = null, currentRunId = null, eventSource = null;
+    let stepCount = 0, candidateFixes = [], simCount = 0;
+    let lastRunMode = '', pathsBefore = null, pathsAfter = null;
+    let currentChokePointId = null, lastChokeData = null;
+    let graphElementsCache = [], attackPathsCache = [];
+
+    /* Preset positions */
+    function computePresetPositions(w, h) {
+      const c1 = w * 0.13, c2 = w * 0.47, c3 = w * 0.75;
+      const y1 = h * 0.22, y2 = h * 0.50, y3 = h * 0.78;
+      const cj = w * 0.12;
+      return {
+        'Attacker':         { x: c1, y: y2 },
+        'web':              { x: w * 0.30, y: y2 },
+        'api':              { x: c2, y: y2 },
+        'admin':            { x: c2 + w*0.03, y: y1 },
+        'db':               { x: c3, y: y3 },
+        'fileshare':        { x: c3, y: y1 },
+        'customer_data':    { x: c3 + cj, y: y3 },
+        'customer_backups': { x: c3 + cj, y: y1 },
+      };
+    }
+
+    /* Cytoscape init */
+    function initCytoscape() {
+      cy = cytoscape({
+        container: document.getElementById('cy'),
+        boxSelectionEnabled: false, autounselectify: true, userZoomingEnabled: true,
+        style: [
+          { selector: 'node', style: {
+              'label': 'data(label)', 'color': '#14213D', 'font-size': 11,
+              'font-weight': '500', 'font-family': 'IBM Plex Mono, monospace',
+              'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 8,
+              'text-wrap': 'wrap', 'text-max-width': 80,
+              'background-color': '#FFFFFF', 'border-width': 1.5, 'border-color': '#14213D',
+              'width': 34, 'height': 34 }},
+          { selector: 'node.attacker', style: {
+              'background-color': '#14213D', 'border-color': '#14213D',
+              'color': '#FFFFFF', 'width': 34, 'height': 34 }},
+          { selector: 'node.crownjewel', style: {
+              'shape': 'diamond', 'background-color': '#FFFDF7',
+              'border-color': '#B8893B', 'border-width': 1.5,
+              'width': 22, 'height': 22, 'font-size': 9, 'text-margin-y': 5 }},
+          { selector: 'node.chokepoint', style: {
+              'border-color': '#C8372D', 'border-width': 3,
+              'overlay-color': '#C8372D', 'overlay-padding': 3, 'overlay-opacity': 0.07 }},
+          { selector: 'node.fixed', style: {
+              'border-color': '#2F7D5B', 'border-width': 2.5 }},
+          { selector: 'edge', style: {
+              'width': 1.2, 'line-color': '#C9C7C0', 'target-arrow-color': '#C9C7C0',
+              'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+              'arrow-scale': 0.7, 'line-opacity': 0.75 }},
+          { selector: 'edge.attack_edge', style: {
+              'width': 2, 'line-color': '#C8372D', 'target-arrow-color': '#C8372D',
+              'line-style': 'solid', 'line-opacity': 1 }},
+          { selector: 'edge.remediated', style: {
+              'line-color': '#C9C7C0', 'target-arrow-color': '#C9C7C0',
+              'line-style': 'dashed', 'line-dash-pattern': [6, 4],
+              'width': 1, 'line-opacity': 0.55 }},
+          { selector: 'edge.holds', style: {
+              'width': 1, 'line-color': '#D4A96A', 'target-arrow-color': '#D4A96A',
+              'line-style': 'dotted', 'arrow-scale': 0.6, 'line-opacity': 0.55 }},
+        ],
+        elements: [], layout: { name: 'preset' }
+      });
+      window.cyInstance = cy;
+    }
+
+    function applyPresetLayout(elements) {
+      if (!cy) return;
+      const c = document.getElementById('cy');
+      const w = c.offsetWidth || 800, h = c.offsetHeight || 500;
+      const pos = computePresetPositions(w, h);
+      cy.elements().remove();
+      cy.add(elements);
+      cy.nodes().forEach(n => { const p = pos[n.id()]; if (p) n.position(p); });
+      cy.fit(cy.elements(), 24);
+    }
+
+    function updateNodeLabels(count) {
+      if (!cy) return;
+      cy.nodes().forEach(n => {
+        const d = n.data();
+        const base = d.label || n.id();
+        if (d.version && count === 0 && n.hasClass('fixed')) {
+          n.style('label', base + '\nv' + d.version);
+        } else {
+          n.style('label', base);
+        }
+      });
+    }
+
+    function markChokePointNode(nodeId, fixed) {
+      if (!cy || !nodeId) return;
+      cy.nodes().removeClass('chokepoint fixed');
+      const nd = cy.getElementById(nodeId);
+      if (nd.length) nd.addClass(fixed ? 'fixed' : 'chokepoint');
+      currentChokePointId = nodeId;
+    }
+
+    function applyAttackEdges(paths) {
+      if (!cy) return;
+      cy.edges().removeClass('attack_edge remediated');
+      if (!paths || !paths.length) return;
+      const s = new Set();
+      paths.forEach(p => { for (let i = 0; i < p.length - 1; i++) s.add(p[i] + '->' + p[i+1]); });
+      cy.edges().forEach(e => { if (s.has(e.data('source') + '->' + e.data('target'))) e.addClass('attack_edge'); });
+    }
+
+    function animateRemediation() {
+      if (!cy) return;
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) { cy.edges().removeClass('attack_edge').addClass('remediated'); return; }
+      const atk = cy.edges('.attack_edge');
+      atk.animate({ style: { 'line-opacity': 0 } }, {
+        duration: 250,
+        complete: () => {
+          cy.edges().removeClass('attack_edge').addClass('remediated');
+          cy.edges().animate({ style: { 'line-opacity': 0.55 } }, { duration: 250 });
+        }
+      });
+    }
+
+    function animateAttackEdges(paths) {
+      if (!cy) return;
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) { applyAttackEdges(paths); return; }
+      const pairs = [];
+      paths.forEach(p => { for (let i = 0; i < p.length - 1; i++) pairs.push([p[i], p[i+1]]); });
+      const uniq = [...new Map(pairs.map(p => [p.join('->'), p])).values()];
+      let delay = 0;
+      uniq.forEach(([src, tgt]) => {
+        setTimeout(() => {
+          cy.edges().forEach(e => { if (e.data('source') === src && e.data('target') === tgt) e.addClass('attack_edge'); });
+        }, delay);
+        delay += 300;
+      });
+    }
+
+    /* Health */
+    async function checkHealth() {
+      try {
+        const d = await fetch('/health').then(r => r.json());
+        const el = document.getElementById('engine-status');
+        const dot = document.getElementById('engine-status-dot');
+        if (d.status === 'ok' && d.falkordb_connected) {
+          el.textContent = 'FalkorDB server ' + (d.falkordb_version || '') + ', connected';
+          dot.className = 'status-dot dot-connected';
+        } else {
+          el.textContent = 'FalkorDB disconnected';
+          dot.className = 'status-dot dot-disconnected';
+        }
+      } catch { 
+        document.getElementById('engine-status').textContent = 'Engine unreachable';
+        document.getElementById('engine-status-dot').className = 'status-dot dot-disconnected';
+      }
+    }
+
+    /* Refresh graph */
+    async function refreshGraph() {
+      try {
+        const data = await fetch('/graph').then(r => r.json());
+        graphElementsCache = data.elements || [];
+        attackPathsCache   = data.attack_paths || [];
+        applyPresetLayout(graphElementsCache);
+        const count = data.attack_paths_count ?? 0;
+        const choke = data.top_choke_point || null;
+        const paths = data.attack_paths || [];
+        if (count > 0) {
+          animateAttackEdges(paths);
+          if (choke) markChokePointNode(choke, false);
+        } else {
+          if (currentChokePointId) markChokePointNode(currentChokePointId, true);
+          animateRemediation();
+        }
+        updateNodeLabels(count);
+        updateMetrics(count, choke);
+        renderChokeTab(data.choke_points);
+      } catch (err) { console.error('refreshGraph:', err); }
+    }
+
+    /* Metrics */
+    function updateMetrics(count, choke) {
+      const pEl = document.getElementById('metric-paths');
+      const sEl = document.getElementById('metric-status');
+      const cEl = document.getElementById('metric-choke');
+      if (count !== undefined && count !== null) {
+        pEl.textContent = count;
+        if (count === 0) {
+          pEl.className = 'metric-val val-safe';
+          sEl.textContent = 'Protected'; sEl.className = 'metric-val val-safe';
+        } else {
+          pEl.className = 'metric-val val-danger';
+          sEl.textContent = 'Exposed'; sEl.className = 'metric-val val-danger';
+        }
+      }
+      if (choke !== undefined) cEl.textContent = choke || '—';
+    }
+
+    /* Choke tab */
+    function renderChokeTab(chokeData) {
+      if (chokeData && chokeData.ranking && chokeData.ranking.length) {
+        lastChokeData = chokeData;
+      }
+      const data = (chokeData && chokeData.ranking && chokeData.ranking.length) ? chokeData : lastChokeData;
+      const el = document.getElementById('tab-choke');
+      if (!data || !data.ranking || !data.ranking.length) {
+        el.innerHTML = '<p class="empty-state">Run the agent to compute centrality rankings.</p>'; return;
+      }
+      const top = data.top_choke_point;
+      const bw  = (data.centrality || {}).betweenness || {};
+      const pr  = (data.centrality || {}).pagerank    || {};
+      const max = data.ranking[0].path_count || 1;
+      let rows = '';
+      data.ranking.forEach(item => {
+        const isTop = item.service === top;
+        const bwv   = bw[item.service]; const prv = pr[item.service];
+        const barW  = Math.round((item.path_count / max) * 58);
+        rows += `<tr class="${isTop ? 'row-selected' : ''}">
+          <td>${escHtml(item.service)}</td>
+          <td class="num">
+            <div class="bar-wrap">
+              <span>${item.path_count}</span>
+              <div class="bar-bg"><div class="bar-fill" style="width:${barW}px;"></div></div>
+            </div>
+          </td>
+          <td class="num">${typeof bwv === 'number' ? bwv.toFixed(1) : '—'}</td>
+          <td class="num">${typeof prv === 'number' ? prv.toFixed(4) : '—'}</td>
+        </tr>`;
+      });
+      el.innerHTML = `<table class="choke-table">
+        <thead><tr><th>Service</th><th class="num">Paths</th><th class="num">Betweenness</th><th class="num">PageRank</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+    }
+
+    /* Report tab */
+    function renderReport(reportText, mode) {
+      const pane = document.getElementById('tab-report');
+      const cleaned = stripEmoji(reportText || '');
+      const beforeStr = pathsBefore !== null ? String(pathsBefore) : '—';
+      const afterStr  = pathsAfter  !== null ? String(pathsAfter)  : '—';
+      const modeLabel = mode || lastRunMode || 'Deterministic fallback';
+      const mdHtml = DOMPurify.sanitize(marked.parse(cleaned), { USE_PROFILES: { html: true } });
+      pane.innerHTML = `
+        <div class="report-before-after">
+          <div class="ba-cell">
+            <div class="ba-label">Attack paths before</div>
+            <div class="ba-val val-danger">${beforeStr}</div>
+          </div>
+          <div class="ba-cell">
+            <div class="ba-label">Attack paths after</div>
+            <div class="ba-val val-safe">${afterStr}</div>
+          </div>
+          <div class="ba-mode">
+            <div class="ba-mode-label">Execution mode</div>
+            <div class="ba-mode-val">${escHtml(modeLabel)}</div>
+          </div>
+        </div>
+        <div id="report-body-content">${mdHtml}</div>`;
+    }
+
+    /* Run */
+    async function triggerRun() {
+      const btn = document.getElementById('btn-run');
+      const prog = document.getElementById('run-progress');
+      btn.disabled = true; btn.textContent = 'Running...';
+      prog.classList.add('active');
+      switchTab('tab-activity');
+      candidateFixes = []; simCount = 0; pathsBefore = null; pathsAfter = null;
+      document.getElementById('metric-sims').textContent = '0';
+      try {
+        const d = await fetch('/run', { method: 'POST' }).then(r => r.json());
+        currentRunId = d.run_id;
+        listenToEvents(currentRunId);
+      } catch (err) {
+        btn.disabled = false; btn.textContent = 'Run agent';
+        prog.classList.remove('active');
+        appendInlineError('Run failed to start: ' + (err.message || err));
+      }
+    }
+
+    /* SSE */
+    function listenToEvents(runId) {
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource('/events/' + runId);
+
+      eventSource.addEventListener('run_started', e => {
+        lastRunMode = JSON.parse(e.data).data.mode || '';
+      });
+
+      eventSource.addEventListener('tool_call', e => {
+        const msg = JSON.parse(e.data);
+        appendStep(msg.data.tool, msg.data.tool + '(' + JSON.stringify(msg.data.args) + ')', true, msg.data.args);
+      });
+
+      eventSource.addEventListener('tool_result', e => {
+        const msg = JSON.parse(e.data);
+        const tool = msg.data.tool, result = msg.data.result;
+        if (tool === 'find_attack_paths') pathsBefore = result?.count ?? result?.paths?.length ?? pathsBefore;
+        if (tool === 'rescan_and_verify') pathsAfter = result?.count_after ?? 0;
+        if (tool === 'simulate_fix') {
+          candidateFixes.push(result); simCount++;
+          document.getElementById('metric-sims').textContent = simCount;
+          if (simCount === 3) renderSimTable(candidateFixes);
+        }
+        if (tool === 'find_choke_points' && result?.top_choke_point) {
+          currentChokePointId = result.top_choke_point;
+          markChokePointNode(result.top_choke_point, false);
+          document.getElementById('metric-choke').textContent = result.top_choke_point;
+          renderChokeTab(result);
+        }
+        appendStep(tool, msg.data.summary, false, result);
+      });
+
+      eventSource.addEventListener('graph_update', e => {
+        const msg = JSON.parse(e.data);
+        const elems = msg.data.elements, cnt = msg.data.attack_paths_count;
+        if (cy && elems) {
+          graphElementsCache = elems;
+          applyPresetLayout(elems);
+          if (cnt === 0) {
+            if (currentChokePointId) markChokePointNode(currentChokePointId, true);
+            animateRemediation();
+          } else {
+            animateAttackEdges(attackPathsCache);
+          }
+          updateNodeLabels(cnt);
+        }
+        updateMetrics(cnt, undefined);
+      });
+
+      eventSource.addEventListener('final_report', e => {
+        renderReport(JSON.parse(e.data).data.report, lastRunMode);
+      });
+
+      eventSource.addEventListener('run_completed', () => {
+        const btn = document.getElementById('btn-run');
+        btn.disabled = false; btn.textContent = 'Run again';
+        document.getElementById('run-progress').classList.remove('active');
+        eventSource.close();
+        switchTab('tab-report');
+        refreshGraph();
+      });
+
+      eventSource.addEventListener('run_error', e => {
+        const msg = JSON.parse(e.data);
+        const btn = document.getElementById('btn-run');
+        btn.disabled = false; btn.textContent = 'Run agent';
+        document.getElementById('run-progress').classList.remove('active');
+        appendInlineError('Execution error: ' + msg.data.error);
+        eventSource.close();
+      });
+    }
+
+    /* Activity helpers */
+    function appendStep(tool, summary, isActive, rawData) {
+      stepCount++;
+      const container = document.getElementById('tab-activity');
+      const row = document.createElement('div');
+      row.className = 'step-row' + (isActive ? ' step-active' : '');
+      const num = String(stepCount).padStart(2, '0');
+      const det = rawData ? '<div class="step-detail">' + escHtml(JSON.stringify(rawData, null, 2)) + '</div>' : '';
+      row.innerHTML = `
+        <div class="step-header" onclick="toggleDetail(this)">
+          <span class="step-num">${num}</span>
+          <span class="step-tool">${escHtml(tool)}</span>
+        </div>
+        <div class="step-summary">${escHtml(summary)}</div>
+        ${det}`;
+      container.appendChild(row);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function toggleDetail(h) {
+      const d = h.parentElement.querySelector('.step-detail');
+      if (d) d.style.display = d.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function renderSimTable(sims) {
+      const container = document.getElementById('tab-activity');
+      const sorted = [...sims].sort((a, b) => a.paths_remaining - b.paths_remaining);
+      const bestKey = sorted[0].service + '|' + sorted[0].fix;
+      let rows = '';
+      sims.forEach(s => {
+        const isBest = s.service + '|' + s.fix === bestKey;
+        rows += `<tr class="${isBest ? 'row-selected' : ''}">
+          <td>${escHtml(s.fix || '')}</td>
+          <td>${escHtml(s.service || '')}</td>
+          <td class="num"><strong>${s.paths_remaining}</strong></td></tr>`;
+      });
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin:4px 0;border:1px solid var(--border);border-radius:4px;overflow:hidden;';
+      wrap.innerHTML = `<table class="choke-table" style="margin:0;">
+        <thead><tr><th>Fix</th><th>Target</th><th class="num">Paths left</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+      container.appendChild(wrap);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function appendInlineError(msg) {
+      const c = document.getElementById('tab-activity');
+      const el = document.createElement('div');
+      el.className = 'inline-error'; el.textContent = msg;
+      c.appendChild(el);
+    }
+
+    /* Reset */
+    async function triggerReset() {
+      const btn = document.getElementById('btn-reset');
+      const run = document.getElementById('btn-run');
+      btn.disabled = true; btn.textContent = 'Resetting...';
+      try {
+        const data = await fetch('/reset', { method: 'POST' }).then(r => r.json());
+        stepCount = 0; candidateFixes = []; simCount = 0;
+        pathsBefore = null; pathsAfter = null; lastRunMode = '';
+        currentChokePointId = null; lastChokeData = null;
+        document.getElementById('metric-sims').textContent = '—';
+        document.getElementById('tab-report').innerHTML = '<p class="empty-state">The remediation report will appear here after a run.</p>';
+        document.getElementById('tab-choke').innerHTML  = '<p class="empty-state">Run the agent to compute centrality rankings.</p>';
+        document.getElementById('tab-activity').innerHTML = `
+          <div class="step-row">
+            <div class="step-header"><span class="step-num">00</span><span class="step-tool">Lab reset</span></div>
+            <div class="step-summary">Lab restored to baseline. Attack paths: <strong>${data.attack_paths_count}</strong>.</div>
+          </div>`;
+        run.disabled = false; run.textContent = 'Run agent';
+        await refreshGraph();
+      } catch (err) { appendInlineError('Reset failed: ' + (err.message || err)); }
+      finally { btn.disabled = false; btn.textContent = 'Reset lab'; }
+    }
+
+    /* Explain Modal */
+    async function openExplainModal() {
+      const modal = document.getElementById('modal-explain');
+      const content = document.getElementById('modal-explain-content');
+      modal.classList.add('active');
+      content.innerHTML = '<p style="color:var(--slate);">Querying hop-by-hop breakdown from FalkorDB...</p>';
+      try {
+        const gData = await fetch('/graph').then(r => r.json());
+        const paths = gData.attack_paths || [];
+        if (!paths.length) {
+          content.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--green);font-size:13px;">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="7" stroke="#2F7D5B" stroke-width="1.5"/>
+              <path d="M5 8l2 2 4-4" stroke="#2F7D5B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Verified clean. Zero attack paths. Crown jewels are protected.</div>`;
+          return;
+        }
+        const cveMap = {
+          'api': 'CVE-2023-22515 (Critical, CVSS 10.0)', 'admin': 'CVE-2023-46604 (High, CVSS 9.8)',
+          'fileshare': 'CVE-2023-27997 (High, CVSS 9.8)', 'web': 'CVE-2023-38606 (Medium)'
+        };
+        let html = '';
+        paths.forEach((path, idx) => {
+          html += `<div style="margin-bottom:18px;">
+            <div style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--red);margin-bottom:8px;">
+              Path ${idx + 1}: ${escHtml(path.join(' -> '))}</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">`;
+          for (let i = 0; i < path.length - 1; i++) {
+            const src = path[i], dst = path[i+1];
+            const cve = cveMap[dst] || 'Weak credentials / lateral movement';
+            html += `<div class="hop-item">
+              <div class="hop-item-header">
+                <span>${i+1}. ${escHtml(src)} &rarr; ${escHtml(dst)}</span>
+                <span class="hop-item-cve">${escHtml(cve)}</span>
+              </div>
+              <div class="hop-item-desc">Traverses network segment into <code>${escHtml(dst)}</code> via exploitable vulnerability or weak service posture.</div>
+            </div>`;
+          }
+          html += '</div></div>';
+        });
+        content.innerHTML = html;
+      } catch (err) {
+        content.innerHTML = '<p style="color:var(--red);">Failed to load explanation: ' + escHtml(String(err)) + '</p>';
+      }
+    }
+
+    function closeExplainModal(e) {
+      if (!e || e.target === document.getElementById('modal-explain'))
+        document.getElementById('modal-explain').classList.remove('active');
+    }
+
+    window.addEventListener('keydown', e => { if (e.key === 'Escape') closeExplainModal(); });
+
+    /* Tabs */
+    function switchTab(tabId) {
+      const panes = ['tab-activity', 'tab-choke', 'tab-report'];
+      document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+        const active = panes[i] === tabId;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active);
+      });
+      document.querySelectorAll('.tab-pane').forEach(p => {
+        p.classList.toggle('active', p.id === tabId);
+      });
+    }
+
+    /* Utilities */
+    function escHtml(str) {
+      return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    }
+
+    function stripEmoji(text) {
+      return text
+        .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+        .replace(/[\u{2600}-\u{27BF}]/gu, '')
+        .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+        .replace(/^(#{1,4}\s*)[^\w\s#\-`\*\.0-9]+ */gmu, '$1')
+        .trim();
+    }
+
+
+    /* Init */
+    function initApp() {
+      initCytoscape();
+      checkHealth();
+      refreshGraph();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
+    }
+  </script>
+</body>
+</html>
